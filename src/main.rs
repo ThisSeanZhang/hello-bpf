@@ -12,7 +12,9 @@ use nix::sys::socket::setsockopt;
 use plain::Plain;
 
 use std::env;
+use std::fs::File;
 use std::io::Error;
+use std::io::Read;
 use std::mem::size_of_val;
 use std::net::TcpStream;
 use std::os::fd::AsRawFd;
@@ -27,7 +29,7 @@ mod socketfilter {
     include!(concat!(env!("OUT_DIR"), "/socketfilter.skel.rs"));
 }
 
-
+/* SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause) */
 // #ifndef __RUNQSLOWER_H
 // #define __RUNQSLOWER_H
 
@@ -47,6 +49,7 @@ mod socketfilter {
 use netpack::*;
 
 unsafe impl Plain for netpack_bss_types::so_event {}
+unsafe impl Plain for socketfilter::socketfilter_bss_types::so_event {}
 
 fn bump_memlock_rlimit() -> Result<()> {
     let rlimit = libc::rlimit {
@@ -62,7 +65,7 @@ fn bump_memlock_rlimit() -> Result<()> {
 }
 
 fn handle_event(_cpu: i32, data: &[u8]) {
-    let mut event = netpack_bss_types::so_event::default();
+    let mut event = socketfilter::socketfilter_bss_types::so_event::default();
     plain::copy_from_bytes(&mut event, data).expect("Data buffer was too short");
     println!("{:?}", event);
     // let now = if let Ok(now) = OffsetDateTime::now_local() {
@@ -116,33 +119,42 @@ fn open_fd() -> Result<i32> {
     }
 }
 
+fn get_cgroup_fd(cgroup_path: &str) -> Result<i32> {
+
+    let mut fd_file = File::open(cgroup_path)?;
+    Ok(fd_file.as_raw_fd())
+
+}
+
 fn main() -> Result<()> {
-    let ifidx = nix::net::if_::if_nametoindex("ens160")? as i32;
+    // let ifidx = nix::net::if_::if_nametoindex("ens160")? as i32;
+    // let cgroup_fd = get_cgroup_fd("/sys/fs/cgroup")?;
+    // println!("{cgroup_fd:?}");
+    let is_cgroup2_unified_mode = cgroups_rs::hierarchies::is_cgroup2_unified_mode();
+    
+    // let a = cgroups_rs::Cgroup::load(cgroups_rs::hierarchies::auto(), cgroups_rs::cgroup::UNIFIED_MOUNTPOINT);
+    // a
+    // println!("{a:?}");
+    let info = cgroups_rs::hierarchies::mountinfo_self();
+    println!("is_cgroup2_unified_mode: {is_cgroup2_unified_mode}");
+    println!("info: {info:?}");
 
-    // let is_cgroup2_unified_mode = cgroups_rs::hierarchies::is_cgroup2_unified_mode();
-    ;
-    // let a = cgroups_rs::Cgroup::load(cgroups_rs::hierarchies::V1, cgroups_rs::cgroup::UNIFIED_MOUNTPOINT);
-    // let info = cgroups_rs::hierarchies::mountinfo_self();
-    // println!("is_cgroup2_unified_mode: {is_cgroup2_unified_mode}");
-    // println!("info: {info:?}");
-
-    println!("ifidx: {ifidx}");
+    // println!("ifidx: {ifidx}");
 
     
     bump_memlock_rlimit()?;
     // ===========================================
-    let mut builder = NetpackSkelBuilder::default();
-    builder.obj_builder.debug(true);
+    // let mut builder = NetpackSkelBuilder::default();
+    // builder.obj_builder.debug(true);
     
-    let open = builder.open()?;
+    // let open = builder.open()?;
     
     
-    let mut skel = open.load()?;
+    // let mut skel = open.load()?;
     // skel.attach()?;
-    let sm_fd = skel.maps().sock_ops_map().fd();
+    // let sm_fd = skel.maps().sock_ops_map().fd();
     
-    skel.progs_mut().stream_parser_handler().attach_sockmap(sm_fd)?;
-    skel.progs_mut().sk_msg_handler().attach_sockmap(sm_fd)?;
+    // let mut progs = skel.progs_mut();
    
     // let stream_parser_handler = progs.stream_parser_handler();
     // stream_parser_handler.attach_sockmap(sm_fd)?;
@@ -170,7 +182,68 @@ fn main() -> Result<()> {
     //     _ => Err(Error::last_os_error().into()),
     // };
 
-    let perf = PerfBufferBuilder::new(skel.maps_mut().events())
+    // let perf = PerfBufferBuilder::new(skel.maps_mut().events())
+    //     .sample_cb(handle_event)
+    //     .lost_cb(handle_lost_events)
+    //     .build()?;
+
+
+    // ===========================================
+
+    let mut socketfilter_builder = socketfilter::SocketfilterSkelBuilder::default();
+    socketfilter_builder.obj_builder.debug(true);
+    let socketfilter_open = socketfilter_builder.open()?;
+
+    let mut socketfilter_skel = socketfilter_open.load()?;
+    
+    let socketfilter_map = socketfilter_skel.maps();
+    let sock_hash = socketfilter_map.sock_hash();
+    
+    println!("sock_hash name:{:?}", sock_hash.name());
+    println!("sock_hash map_type:{}", sock_hash.map_type());
+    println!("sock_hash key_size:{}", sock_hash.key_size());
+    println!("sock_hash value_size:{:?}", sock_hash.value_size());
+
+    // let mut binding = socketfilter_skel.maps_mut();
+    // let socke_map= binding.sock_hash();
+    // socke_map.pin("/sys/fs/bpf/sock_ops_map")?;
+
+    let map_fd =  socketfilter_skel.maps_mut().sock_hash().fd();
+    let socketfilter_prog = socketfilter_skel.progs();
+    let msg_prog = socketfilter_prog.sk_msg_handler();
+    println!("msg_prog prog_type:{}", msg_prog.prog_type());
+    println!("msg_prog attach_type:{}", msg_prog.attach_type());
+    println!("msg_prog name:{:?}", msg_prog.name());
+    println!("msg_prog section:{:?}", msg_prog.section());
+
+    let stream_parser_handler = socketfilter_prog.stream_parser();
+    println!("stream_parser_handler prog_type:{}", stream_parser_handler.prog_type());
+    println!("stream_parser_handler attach_type:{}", stream_parser_handler.attach_type());
+    println!("stream_parser_handler name:{:?}", stream_parser_handler.name());
+    println!("stream_parser_handler section:{:?}", stream_parser_handler.section());
+
+    let bpf_sockops = socketfilter_prog.bpf_sockops();
+    println!("bpf_sockops prog_type:{}", bpf_sockops.prog_type());
+    println!("bpf_sockops attach_type:{}", bpf_sockops.attach_type());
+    println!("bpf_sockops name:{:?}", bpf_sockops.name());
+    println!("bpf_sockops section:{:?}", bpf_sockops.section());
+
+    // let _msg_prog = socketfilter_skel.progs_mut().sk_msg_handler().attach_sockmap(map_fd)?;
+    let _parse_prog = socketfilter_skel.progs_mut().stream_parser().attach_sockmap(map_fd)?;
+
+    // bpf_sockops_prog.pin("/sys/fs/bpf/bpf_sockops")?;
+
+    let file = std::fs::OpenOptions::new()
+            //.custom_flags(libc::O_DIRECTORY)
+            //.create(true)
+            .read(true)
+            .write(false)
+            .open("/sys/fs/cgroup/")?;
+    let cgroup_fd = file.as_raw_fd();
+    let _bpf_sockops = socketfilter_skel.progs_mut().bpf_sockops().attach_cgroup(cgroup_fd)?;
+    // println!("attach type: {:?}", prog.bpf_sockops().attach_type());
+
+    let perf = PerfBufferBuilder::new(socketfilter_skel.maps_mut().events())
         .sample_cb(handle_event)
         .lost_cb(handle_lost_events)
         .build()?;
@@ -178,16 +251,6 @@ fn main() -> Result<()> {
     loop {
         perf.poll(Duration::from_millis(100))?;
     }
-    // ===========================================
-
-    // let mut builder = socketfilter::SocketfilterSkelBuilder::default();
-    // builder.obj_builder.debug(true);
-    // let open = builder.open()?;
-
-    // let mut skel = open.load()?;
-    // let mut prog = skel.progs_mut();
-
-    
     // ===========================================
 
     // prog.bpf_sockops().attach_cgroup(cgroup_fd)

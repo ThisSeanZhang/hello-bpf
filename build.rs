@@ -12,11 +12,11 @@ fn main() {
         .source(SRC)
         .build_and_generate(&netpack)
         .unwrap();
+    println!("cargo:rerun-if-changed={SRC}");
     let socketfilter = out.clone().join("socketfilter.skel.rs");
     SkeletonBuilder::new()
         .source(SRC2)
         .build_and_generate(&socketfilter)
         .unwrap();
-    println!("cargo:rerun-if-changed={SRC}");
     println!("cargo:rerun-if-changed={SRC2}");
 }
