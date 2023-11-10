@@ -1,19 +1,6 @@
-[package]
-name = "net_bpf"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-anyhow = "1.0"
-libbpf-rs = "0.20.1"
-libc = "0.2"
-plain = "0.2"
-time = { version = "0.3", features = ["formatting", "local-offset", "macros"]}
-clap = { version = "4.0.32", default-features = false, features = ["std", "derive", "help", "usage"] }
-nix = { version = "0.26.2", default-features = false, features = ["net", "user", "socket"] }
-cgroups-rs = "0.3.2"
-
-[build-dependencies]
-libbpf-cargo = "0.20.1"
+[workspace]
+members = [
+  "cputime",
+  "net",
+]
+resolver = "2"
