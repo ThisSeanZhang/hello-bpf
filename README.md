@@ -8,9 +8,13 @@ rustup default nightly
 
 # require
 ```shell
+# Centos
 yum install make
 yum install elfutils-libelf-devel
 
+# Ubuntu
+sudo apt-get install libelf-dev
+sudo apt install clang
 ```
 # debug
 cat /sys/kernel/debug/tracing/trace_pipe
